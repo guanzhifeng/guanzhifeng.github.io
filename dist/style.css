@@ -37,9 +37,11 @@
     width: 25%;
     height: 30px;
 }
+
 #save {
     border-radius: 0 0 15px 0;
 }
+
 #load {
     border-radius: 0 0 0 15px;
 }
@@ -94,6 +96,7 @@
     flex-direction: row;
     justify-content: space-between;
 }
+
 .btn_right>div>div {
     display: flex;
     align-items: center;
