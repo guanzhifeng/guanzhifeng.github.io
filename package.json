@@ -1,0 +1,19 @@
+{
+  "name": "mynes",
+  "version": "1.0.0",
+  "main": "./src/nes-embed.js",
+  "scripts": {
+    "build": "webpack"
+  },
+  "dependencies": {
+    "jsnes": "^1.2.1",
+    "localforage": "^1.10.0",
+    "nipplejs": "^0.10.1",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  },
+  "devDependencies": {
+    "css-loader": "^6.8.1",
+    "style-loader": "^3.3.3"
+  }
+}
