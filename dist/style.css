@@ -67,6 +67,7 @@
     width: 100%;
     margin: 10px auto 20px;
     text-align: center;
+    user-select: none;
 }
 
 .btn_left {

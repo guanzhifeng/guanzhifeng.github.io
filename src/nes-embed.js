@@ -2,52 +2,187 @@ import { NES, Controller } from 'jsnes';
 import nipplejs from 'nipplejs';
 import localforage from 'localforage';
 
-const nesStore = localforage.createInstance({
-	name: 'myNES',
-})
-
 const SCREEN_WIDTH = 256;
 const SCREEN_HEIGHT = 240;
 const FRAMEBUFFER_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT;
-
-let canvas_ctx, image;
-let framebuffer_u8, framebuffer_u32;
-
 const AUDIO_BUFFERING = 512;
 const SAMPLE_COUNT = 4 * 1024;
 const SAMPLE_MASK = SAMPLE_COUNT - 1;
 const audio_samples_L = new Float32Array(SAMPLE_COUNT);
 const audio_samples_R = new Float32Array(SAMPLE_COUNT);
-let audio_write_cursor = 0, audio_read_cursor = 0;
-let romBuffer, title;
+const nesStore = localforage.createInstance({ name: 'myNES' })
+const saveBtn = document.getElementById('save');
+const loadBtn = document.getElementById('load');
 
-var nes = new NES({
-	onFrame: function (framebuffer_24) {
-		for (var i = 0; i < FRAMEBUFFER_SIZE; i++) framebuffer_u32[i] = 0xFF000000 | framebuffer_24[i];
+const manager = nipplejs.create({
+	zone: document.getElementById('joy'),
+	mode: 'static',
+	position: {
+		left: '50%',
+		top: '50%',
 	},
-	onAudioSample: function (l, r) {
-		audio_samples_L[audio_write_cursor] = l;
-		audio_samples_R[audio_write_cursor] = r;
-		audio_write_cursor = (audio_write_cursor + 1) & SAMPLE_MASK;
-	},
-});
+	size: 130,
+	color: 'blue',
+})
 
-let lastTouchEnd = 0
-document.documentElement.addEventListener('touchend', event => {
-	var now = Date.now()
-	if (now - lastTouchEnd <= 300) {
-		event.preventDefault()
-	}
-	lastTouchEnd = now
-},
-	{
-		passive: false
-	}
-)
+const controlStatus = {
+	left: {
+		s: 0,
+		btn: 'BUTTON_LEFT'
+	},
+	right: {
+		s: 0,
+		btn: 'BUTTON_RIGHT'
+	},
+	up: {
+		s: 0,
+		btn: 'BUTTON_UP'
+	},
+	down: {
+		s: 0,
+		btn: 'BUTTON_DOWN'
+	},
+}
+
+let audio_write_cursor = 0, audio_read_cursor = 0, framebuffer_u8, framebuffer_u32;
+let romBuffer, title, canvas_ctx, image, nes;
+let done = false, ID = 0, lastTouchEnd = 0, move;
+
+init();
+
+function init() {
+	nes = new NES({
+		onFrame: function (framebuffer_24) {
+			for (var i = 0; i < FRAMEBUFFER_SIZE; i++) framebuffer_u32[i] = 0xFF000000 | framebuffer_24[i];
+		},
+		onAudioSample: function (l, r) {
+			audio_samples_L[audio_write_cursor] = l;
+			audio_samples_R[audio_write_cursor] = r;
+			audio_write_cursor = (audio_write_cursor + 1) & SAMPLE_MASK;
+		},
+	});
+
+	
+	bind();
+}
+
+function bind() {
+	document.documentElement.addEventListener('touchend', event => {
+		let now = Date.now()
+		if (now - lastTouchEnd <= 300) {
+			event.preventDefault()
+		}
+		lastTouchEnd = now
+	}, { passive: false }
+	);
+
+	manager.on('move', (e, data) => {
+		if (move !== data.direction?.angle) {
+			if (move && controlStatus[move].s) {
+				nes.buttonUp(1, Controller[controlStatus[move].btn]);
+				controlStatus[move].s = 0;
+			}
+			switch (data.direction?.angle) {
+				case 'up':
+					nes.buttonDown(1, Controller.BUTTON_UP);
+					move = data.direction.angle;
+					controlStatus[move].s = 1;
+					break;
+				case 'down':
+					nes.buttonDown(1, Controller.BUTTON_DOWN);
+					move = data.direction.angle;
+					controlStatus[move].s = 1;
+					break;
+				case 'left':
+					nes.buttonDown(1, Controller.BUTTON_LEFT);
+					move = data.direction.angle;
+					controlStatus[move].s = 1;
+					break;
+				case 'right':
+					nes.buttonDown(1, Controller.BUTTON_RIGHT);
+					move = data.direction.angle;
+					controlStatus[move].s = 1;
+					break;
+				default:
+					for (let i in controlStatus) {
+						if (controlStatus[i].s) {
+							nes.buttonUp(1, Controller[controlStatus[i].btn]);
+							controlStatus[i].s = 0;
+						}
+					}
+					move = '';
+			}
+		}
+	}).on('end', () => {
+		for (let i in controlStatus) {
+			if (controlStatus[i].s) {
+				nes.buttonUp(1, Controller[controlStatus[i].btn]);
+				controlStatus[i].s = 0;
+			}
+		}
+		move = '';
+	});
+
+	bindBTN('a', 'BUTTON_A');
+	bindBTN('b', 'BUTTON_B');
+	bindBTN('select', 'BUTTON_SELECT');
+	bindBTN('start', 'BUTTON_START');
+
+	document.getElementById('fileLoad').addEventListener('change', e => {
+		let reader = new FileReader();
+		reader.readAsBinaryString(e.target.files[0]);
+		title = e.target.files[0].name;
+		reader.onload = d => {
+			try {
+				romBuffer = d.target.result;
+				if(ID === 0){
+					nes_init('nes');
+					onAnimationFrame();
+				}
+				nes.loadROM(romBuffer);
+			} catch (f) {
+				console.log('该游戏不被支持');
+			}
+	
+		}
+	})
+
+	saveBtn.addEventListener('click', () => {
+		if (nes.cpu.irqRequested) {
+			nesStore.setItem(title, getNesData());
+			saveBtn.innerText = '已保存';
+			setTimeout(() => {
+				saveBtn.innerText = '保存';
+			}, 1000);
+		} else {
+			console.log('游戏尚未运行，请开始游戏后再试。')
+		}
+	});
+
+	loadBtn.addEventListener('click', () => {
+		if (nes.cpu.irqRequested) {
+			nesStore.getItem(title).then(saveData => {
+				if (saveData) {
+					load(saveData);
+					loadBtn.innerText = '读取成功';
+					setTimeout(() => {
+						loadBtn.innerText = '读取';
+					}, 1000)
+				} else {
+					alert('读取存档出错');
+				}
+			}).catch(() => {
+				alert('读取存档出错');
+			})
+		} else {
+			console.log('游戏尚未运行，请开始游戏后再试。')
+		}
+	})
+}
+
 
 function onAnimationFrame() {
-	window.requestAnimationFrame(onAnimationFrame);
-
+	ID = requestAnimationFrame(onAnimationFrame);
 	image.data.set(framebuffer_u8);
 	canvas_ctx.putImageData(image, 0, 0);
 }
@@ -73,94 +208,15 @@ function audio_callback(event) {
 
 	audio_read_cursor = (audio_read_cursor + len) & SAMPLE_MASK;
 }
-const manager = nipplejs.create({
-	zone: document.getElementById('joy'), 
-	mode: 'static', 
-	position: {
-		left: '50%', 
-		top: '50%', 
-	}, 
-	size: 130,
-	color: 'blue',
-})
-let move;
-const controlStatus = {
-	left: {
-		s: 0,
-		btn: 'BUTTON_LEFT' 
-	}, 
-	right: {
-		s: 0,
-		btn: 'BUTTON_RIGHT' 
-	}, 
-	up: {
-		s: 0,
-		btn: 'BUTTON_UP' 
-	}, 
-	down: {
-		s: 0,
-		btn: 'BUTTON_DOWN' 
-	},  
-}
 
-manager.on('move', (e, data)=>{
-	if(move !== data.direction?.angle){
-		if(move && controlStatus[move].s){
-			nes.buttonUp(1, Controller[controlStatus[move].btn]);
-			controlStatus[move].s = 0;
-		}
-		switch (data.direction?.angle) {
-			case 'up':
-				nes.buttonDown(1, Controller.BUTTON_UP);
-				move = data.direction.angle;
-				controlStatus[move].s = 1;
-				break;
-			case 'down':
-				nes.buttonDown(1, Controller.BUTTON_DOWN);
-				move = data.direction.angle;
-				controlStatus[move].s = 1;
-				break;
-			case 'left':
-				nes.buttonDown(1, Controller.BUTTON_LEFT);
-				move = data.direction.angle;
-				controlStatus[move].s = 1;
-				break;
-			case 'right':
-				nes.buttonDown(1, Controller.BUTTON_RIGHT);
-				move = data.direction.angle;
-				controlStatus[move].s = 1;
-				break;
-			default:
-				for(let i in controlStatus){
-					if(controlStatus[i].s){
-						nes.buttonUp(1, Controller[controlStatus[i].btn]);
-						controlStatus[i].s = 0;
-					}
-				}
-				move = '';
-		}
-	}
-}).on('end', ()=>{
-	for(let i in controlStatus){
-		if(controlStatus[i].s){
-			nes.buttonUp(1, Controller[controlStatus[i].btn]);
-			controlStatus[i].s = 0;
-		}
-	}
-	move = '';
-})
 function bindBTN(id, btn) {
-	document.getElementById(id)?.addEventListener('touchstart', e => { nes.buttonDown(1, Controller[btn]); e.preventDefault(); e.target.style.boxShadow = '1px 1px 3px #111 inset';}, false);
-	document.getElementById(id)?.addEventListener('touchend', e => { nes.buttonUp(1, Controller[btn]); e.preventDefault(); e.target.style.boxShadow = '-1px -1px 3px #111 inset';}, false);
+	document.getElementById(id)?.addEventListener('touchstart', e => { nes.buttonDown(1, Controller[btn]); e.preventDefault(); e.target.style.boxShadow = '1px 1px 3px #111 inset'; }, false);
+	document.getElementById(id)?.addEventListener('touchend', e => { nes.buttonUp(1, Controller[btn]); e.preventDefault(); e.target.style.boxShadow = '-1px -1px 3px #111 inset'; }, false);
 }
-bindBTN('a', 'BUTTON_A');
-bindBTN('b', 'BUTTON_B');
-bindBTN('select', 'BUTTON_SELECT');
-bindBTN('start', 'BUTTON_START');
 
 function nes_init(canvas_id) {
 	var canvas = document.getElementById(canvas_id);
-	canvas_ctx = canvas.getContext("2d");
+	canvas_ctx = canvas.getContext("2d",{willReadFrequently: true});
 	image = canvas_ctx.getImageData(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 	// Allocate framebuffer array.
@@ -174,41 +230,6 @@ function nes_init(canvas_id) {
 	script_processor.onaudioprocess = audio_callback;
 	script_processor.connect(audio_ctx.destination);
 }
-
-function nes_boot(rom_data) {
-	nes.loadROM(rom_data);
-	window.requestAnimationFrame(onAnimationFrame);
-}
-
-function nes_load_data(rom_data) {
-	nes_init('nes');
-	nes_boot(rom_data);
-}
-
-
-
-
-
-document.getElementById('fileLoad').addEventListener('change', e => {
-	let reader = new FileReader();
-	reader.readAsBinaryString(e.target.files[0]);
-	title = e.target.files[0].name;
-	reader.onload = d => {
-		try {
-			romBuffer = d.target.result;
-			nes_load_data(romBuffer);
-			console.log(title, '开始运行');
-		} catch (f) {
-			console.log('该游戏不被支持');
-		}
-
-	}
-})
-
-
-
-const saveBtn = document.getElementById('save');
-const loadBtn = document.getElementById('load');
 
 function getNesData() {
 	const ppuData = nes.ppu.toJSON()
@@ -237,19 +258,6 @@ function getNesData() {
 	}
 }
 
-saveBtn.addEventListener('click', () => {
-	if (nes.cpu.irqRequested) {
-		nesStore.setItem(title, getNesData());
-		saveBtn.innerText = '已保存';
-		setTimeout(()=>{
-			saveBtn.innerText = '保存';
-		},1000);
-	} else {
-		console.log('游戏尚未运行，请开始游戏后再试。')
-	}
-})
-
-// 读取游戏
 function load(saveData) {
 	try {
 		nes.ppu.reset()
@@ -275,26 +283,6 @@ function load(saveData) {
 		console.log('读取失败，数据丢失或无效。')
 	}
 }
-
-loadBtn.addEventListener('click', () => {
-	if (nes.cpu.irqRequested) {
-		nesStore.getItem(title).then( saveData =>{
-			if(saveData){
-				load(saveData);
-				loadBtn.innerText = '读取成功';
-				setTimeout(()=>{
-					loadBtn.innerText = '读取';
-				},1000)
-			}else{
-				alert('读取存档出错');
-			}
-		}).catch(()=>{
-			alert('读取存档出错');
-		})
-	} else {
-		console.log('游戏尚未运行，请开始游戏后再试。')
-	}
-})
 
 function compressArray(arr) {
 	const compressed = []
