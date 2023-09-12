@@ -5,7 +5,18 @@
     height: 100%;
     background-color: #ccc;
     overflow: hidden;
-    border-radius: 15px;
+    border-radius: 30px;
+}
+
+.title-name {
+    height: 25px;
+    width: 100%;
+    font-size: 25px;
+    font-weight: bold;
+    color: red;
+    text-align: center;
+    user-select: none;
+    margin-top: 5px;
 }
 
 #game {
@@ -15,7 +26,8 @@
     height: 30px;
     width: 100px;
     background-color: aliceblue;
-    border-radius: 10px;
+    border-radius: 15px;
+    user-select: none;
 }
 
 #fileLoad {
@@ -36,6 +48,7 @@
     font-size: 20px;
     width: 25%;
     height: 30px;
+    user-select: none;
 }
 
 #save {
@@ -49,10 +62,10 @@
 .screen {
     width: 296px;
     height: 280px;
-    border-radius: 10px;
+    border-radius: 15px;
     padding: 10px;
     margin: 20px auto 20px;
-    background-color: #bbb;
+    background-color: #aaa;
 }
 
 #nes {
@@ -77,6 +90,7 @@
     width: 39vw;
     height: 39vw;
     position: relative;
+    user-select: none;
 }
 
 .btn_right {
